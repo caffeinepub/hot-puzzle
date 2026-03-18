@@ -1,19 +1,10 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   ChevronLeft,
   ChevronRight,
-  Loader2,
   Lock,
-  LogOut,
   Play,
   Star,
   Trophy,
@@ -21,14 +12,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 import { useGameSounds } from "../hooks/useGameSounds";
-import { useInternetIdentity } from "../hooks/useInternetIdentity";
-import {
-  usePlayerProfile,
-  useSavePlayerProfile,
-  useTopPlayers,
-} from "../hooks/useQueries";
 
 const LEVELS_PER_PAGE = 50;
 const TOTAL_LEVELS = 2000;
@@ -40,20 +24,17 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ onPlayLevel }: DashboardProps) {
-  const { clear } = useInternetIdentity();
-  const { data: profile, isLoading: profileLoading } = usePlayerProfile();
-  const { data: topPlayers } = useTopPlayers();
-  const saveProfile = useSavePlayerProfile();
   const { play, toggle, isMuted } = useGameSounds();
 
   const [page, setPage] = useState(1);
-  const [usernameInput, setUsernameInput] = useState("");
-  const [showUsernameDialog, setShowUsernameDialog] = useState(false);
+  const [currentLevel, _setCurrentLevel] = useState(() => {
+    try {
+      return Number(localStorage.getItem("hotpuzzle_level") || "1") || 1;
+    } catch {
+      return 1;
+    }
+  });
 
-  const currentLevel = profile ? Number(profile.currentLevel) || 1 : 1;
-  const totalScore = profile ? Number(profile.totalScore) : 0;
-  const username = profile?.username || "";
-  const needsUsername = profile && !profile.username;
   const totalPages = Math.ceil(TOTAL_LEVELS / LEVELS_PER_PAGE);
   const startLevel = (page - 1) * LEVELS_PER_PAGE + 1;
   const levels = Array.from(
@@ -61,19 +42,10 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
     (_, i) => startLevel + i,
   );
 
-  const handleSetUsername = async () => {
-    if (!usernameInput.trim()) return;
-    try {
-      await saveProfile.mutateAsync({
-        username: usernameInput.trim(),
-        totalScore: BigInt(totalScore),
-        currentLevel: BigInt(currentLevel),
-      });
-      setShowUsernameDialog(false);
-      toast.success("Username saved!");
-    } catch {
-      toast.error("Failed to save username");
-    }
+  const handlePlayLevel = (level: number) => {
+    if (level > currentLevel) return;
+    play("level_select");
+    onPlayLevel(level);
   };
 
   const getLevelStatus = (level: number) => {
@@ -100,38 +72,16 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
           />
 
           <div className="flex items-center gap-4">
-            {profileLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin text-orange-400" />
-            ) : (
-              <>
-                <div className="text-right">
-                  <div className="text-sm font-bold text-yellow-400">
-                    {username || (
-                      <button
-                        type="button"
-                        onClick={() => setShowUsernameDialog(true)}
-                        className="text-orange-400 hover:text-orange-300 underline"
-                      >
-                        Set username
-                      </button>
-                    )}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    ⭐ {totalScore.toLocaleString()} pts
-                  </div>
-                </div>
-                <Badge
-                  className="text-xs"
-                  style={{
-                    background: "rgba(255,106,0,0.2)",
-                    color: "#ff6a00",
-                    border: "1px solid rgba(255,106,0,0.4)",
-                  }}
-                >
-                  Lvl {currentLevel}
-                </Badge>
-              </>
-            )}
+            <Badge
+              className="text-xs"
+              style={{
+                background: "rgba(255,106,0,0.2)",
+                color: "#ff6a00",
+                border: "1px solid rgba(255,106,0,0.4)",
+              }}
+            >
+              Lvl {currentLevel}
+            </Badge>
             <Button
               data-ocid="dashboard.toggle"
               variant="ghost"
@@ -145,15 +95,6 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
               ) : (
                 <Volume2 className="w-4 h-4" />
               )}
-            </Button>
-            <Button
-              data-ocid="dashboard.secondary_button"
-              variant="ghost"
-              size="sm"
-              onClick={clear}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <LogOut className="w-4 h-4" />
             </Button>
           </div>
         </div>
@@ -206,12 +147,7 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
                       type="button"
                       key={level}
                       data-ocid={`dashboard.item.${posInPage}`}
-                      onClick={() => {
-                        if (status !== "locked") {
-                          play("level_select");
-                          onPlayLevel(level);
-                        }
-                      }}
+                      onClick={() => handlePlayLevel(level)}
                       className={`level-cell ${status} flex flex-col items-center justify-center p-1 aspect-square`}
                     >
                       <span
@@ -305,71 +241,71 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
             <div className="flex items-center gap-2 mb-4">
               <Trophy className="text-yellow-400 w-5 h-5" />
               <h3 className="text-base font-bold text-yellow-400">
-                Leaderboard
+                Top Scores
               </h3>
             </div>
-            <ScrollArea className="h-[500px]">
+            <ScrollArea className="h-[400px]">
               <div className="space-y-2 pr-2">
-                {topPlayers && topPlayers.length > 0 ? (
-                  topPlayers.slice(0, 10).map((player, i) => (
-                    <div
-                      key={player.username || `player-${i}`}
-                      data-ocid={`dashboard.item.${i + 1}`}
-                      className="flex items-center justify-between px-2 py-2 rounded-lg"
-                      style={{
-                        background:
-                          i === 0
-                            ? "rgba(255,200,0,0.15)"
-                            : i === 1
-                              ? "rgba(192,192,192,0.1)"
-                              : i === 2
-                                ? "rgba(180,100,0,0.1)"
-                                : "rgba(255,255,255,0.04)",
-                        border: `1px solid ${
-                          i === 0
-                            ? "rgba(255,200,0,0.3)"
-                            : i === 1
-                              ? "rgba(192,192,192,0.2)"
-                              : i === 2
-                                ? "rgba(180,100,0,0.2)"
-                                : "transparent"
-                        }`,
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm w-6 text-center">
-                          {i === 0
-                            ? "🥇"
-                            : i === 1
-                              ? "🥈"
-                              : i === 2
-                                ? "🥉"
-                                : `${i + 1}`}
-                        </span>
-                        <span className="text-sm text-foreground truncate max-w-[90px]">
-                          {player.username || "Anon"}
-                        </span>
+                {[
+                  { name: "FruitMaster", score: 98420, level: 142 },
+                  { name: "PuzzleKing", score: 87110, level: 118 },
+                  { name: "StarCrusher", score: 74300, level: 95 },
+                  { name: "MatchWizard", score: 61880, level: 77 },
+                  { name: "CandyAce", score: 53200, level: 64 },
+                  { name: "BlastQueen", score: 44750, level: 52 },
+                  { name: "TileHero", score: 37640, level: 43 },
+                  { name: "ComboChamp", score: 29900, level: 35 },
+                  { name: "SwapStar", score: 22100, level: 27 },
+                  { name: "NewPlayer", score: 14500, level: 18 },
+                ].map((player, i) => (
+                  <div
+                    key={player.name}
+                    data-ocid={`dashboard.item.${i + 1}`}
+                    className="flex items-center justify-between px-2 py-2 rounded-lg"
+                    style={{
+                      background:
+                        i === 0
+                          ? "rgba(255,200,0,0.15)"
+                          : i === 1
+                            ? "rgba(192,192,192,0.1)"
+                            : i === 2
+                              ? "rgba(180,100,0,0.1)"
+                              : "rgba(255,255,255,0.04)",
+                      border: `1px solid ${
+                        i === 0
+                          ? "rgba(255,200,0,0.3)"
+                          : i === 1
+                            ? "rgba(192,192,192,0.2)"
+                            : i === 2
+                              ? "rgba(180,100,0,0.2)"
+                              : "transparent"
+                      }`,
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm w-6 text-center">
+                        {i === 0
+                          ? "🥇"
+                          : i === 1
+                            ? "🥈"
+                            : i === 2
+                              ? "🥉"
+                              : `${i + 1}`}
+                      </span>
+                      <span className="text-sm text-foreground truncate max-w-[90px]">
+                        {player.name}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-yellow-400 text-xs font-bold">
+                        {player.score.toLocaleString()}
                       </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-yellow-400 text-xs font-bold">
-                          {Number(player.totalScore).toLocaleString()}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Lvl {Number(player.currentLevel)}
-                        </div>
+                      <div className="text-xs text-muted-foreground">
+                        Lvl {player.level}
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div
-                    data-ocid="dashboard.empty_state"
-                    className="text-center text-muted-foreground py-8"
-                  >
-                    <Trophy className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No champions yet</p>
-                    <p className="text-xs mt-1">Be the first!</p>
                   </div>
-                )}
+                ))}
               </div>
             </ScrollArea>
           </aside>
@@ -387,61 +323,6 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
           caffeine.ai
         </a>
       </footer>
-
-      <Dialog
-        open={!!(needsUsername || showUsernameDialog)}
-        onOpenChange={setShowUsernameDialog}
-      >
-        <DialogContent
-          data-ocid="dashboard.dialog"
-          className="game-card border-0"
-          style={{
-            background: "rgba(10,0,30,0.95)",
-            border: "1px solid rgba(255,106,0,0.4)",
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle className="fire-title text-2xl text-center">
-              Choose Your Name
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-2">
-            <p className="text-center text-muted-foreground text-sm">
-              Pick a username to appear on the leaderboard
-            </p>
-            <Input
-              data-ocid="dashboard.input"
-              placeholder="Enter your username..."
-              value={usernameInput}
-              onChange={(e) => setUsernameInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSetUsername()}
-              maxLength={20}
-              className="text-center text-lg"
-              style={{
-                background: "rgba(255,255,255,0.08)",
-                border: "1px solid rgba(255,106,0,0.3)",
-                color: "#fff",
-              }}
-            />
-            <Button
-              data-ocid="dashboard.submit_button"
-              onClick={handleSetUsername}
-              disabled={!usernameInput.trim() || saveProfile.isPending}
-              className="w-full py-5 font-bold"
-              style={{
-                background: "linear-gradient(135deg, #ff6a00, #ee0979)",
-                border: "none",
-                color: "#fff",
-              }}
-            >
-              {saveProfile.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-              ) : null}
-              Save & Play!
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

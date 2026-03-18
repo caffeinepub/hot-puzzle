@@ -10,25 +10,129 @@ function getSharedAudioContext(): AudioContext {
 
 const MUSIC_KEY = "hotpuzzle_music";
 
-// Upbeat pentatonic melody in Hz (C major pentatonic)
+// Piano note frequencies (C major scale + octave extensions)
+const C4 = 261.63;
+const _D4 = 293.66;
+const _E4 = 329.63;
+const F4 = 349.23;
+const G4 = 392.0;
+const A4 = 440.0;
+const B4 = 493.88;
+const C5 = 523.25;
+const D5 = 587.33;
+const E5 = 659.25;
+const G5 = 783.99;
+const _A5 = 880.0;
+const C3 = 130.81;
+const G3 = 196.0;
+const F3 = 174.61;
+const A3 = 220.0;
+
+// Uplifting melody — two-bar phrase
 const MELODY: number[] = [
-  523.25, 587.33, 659.25, 783.99, 880.0, 783.99, 659.25, 587.33, 523.25, 659.25,
-  783.99, 1046.5, 880.0, 783.99, 659.25, 523.25,
+  C5,
+  E5,
+  G5,
+  E5,
+  C5,
+  D5,
+  E5,
+  D5,
+  C5,
+  G4,
+  A4,
+  B4,
+  C5,
+  E5,
+  D5,
+  C5,
 ];
 
-// Bass pattern (root + fifth, 0 = rest)
-const BASS: number[] = [
-  130.81, 0, 196.0, 0, 146.83, 0, 220.0, 0, 130.81, 0, 196.0, 0, 174.61, 0,
-  261.63, 0,
-];
+// Bass / accompaniment (0 = rest)
+const BASS: number[] = [C3, 0, G3, 0, A3, 0, F3, 0, C3, 0, G3, 0, F3, 0, G3, 0];
 
-const NOTE_DURATION = 0.18;
-const NOTE_GAP = 0.02;
+// Mid-range pad notes
+const PAD: number[] = [C4, 0, G4, 0, A4, 0, F4, 0, C4, 0, G4, 0, F4, 0, G4, 0];
+
+const NOTE_DURATION = 0.22;
+const NOTE_GAP = 0.03;
 const STEP_DURATION = NOTE_DURATION + NOTE_GAP;
-const MELODY_GAIN = 0.09;
-const BASS_GAIN = 0.07;
-const LOOKAHEAD = 0.1;
+const LOOKAHEAD = 0.15;
 const SCHEDULE_INTERVAL = 80;
+
+// Professional piano-like synthesis
+function schedulePianoNote(
+  ctx: AudioContext,
+  freq: number,
+  time: number,
+  gain: number,
+  duration: number,
+) {
+  if (freq <= 0) return;
+  const master = ctx.createGain();
+  master.connect(ctx.destination);
+  master.gain.setValueAtTime(0, time);
+  master.gain.linearRampToValueAtTime(gain, time + 0.005);
+  master.gain.setValueAtTime(gain * 0.75, time + 0.04);
+  master.gain.exponentialRampToValueAtTime(0.0001, time + duration);
+
+  // Fundamental + harmonics for piano timbre
+  const harmonics = [1, 2, 3, 4, 5];
+  const hGains = [1.0, 0.45, 0.2, 0.08, 0.03];
+
+  harmonics.forEach((h, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(freq * h, time);
+    const g = ctx.createGain();
+    g.gain.value = hGains[i];
+    osc.connect(g);
+    g.connect(master);
+    osc.start(time);
+    osc.stop(time + duration + 0.02);
+  });
+
+  // Soft attack transient (slight inharmonic click)
+  const click = ctx.createOscillator();
+  click.type = "triangle";
+  click.frequency.setValueAtTime(freq * 7.1, time);
+  const cg = ctx.createGain();
+  cg.gain.setValueAtTime(gain * 0.15, time);
+  cg.gain.exponentialRampToValueAtTime(0.0001, time + 0.025);
+  click.connect(cg);
+  cg.connect(master);
+  click.start(time);
+  click.stop(time + 0.03);
+}
+
+// Warm pad / string-like tone for mid accompaniment
+function schedulePadNote(
+  ctx: AudioContext,
+  freq: number,
+  time: number,
+  gain: number,
+  duration: number,
+) {
+  if (freq <= 0) return;
+  const master = ctx.createGain();
+  master.connect(ctx.destination);
+  master.gain.setValueAtTime(0, time);
+  master.gain.linearRampToValueAtTime(gain, time + 0.05);
+  master.gain.exponentialRampToValueAtTime(0.0001, time + duration * 1.4);
+
+  [1, 2, 3].forEach((h, i) => {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    // Slight detuning for warmth
+    osc.frequency.setValueAtTime(freq * h * (1 + (i === 1 ? 0.003 : 0)), time);
+    const g = ctx.createGain();
+    g.gain.value = [0.6, 0.25, 0.1][i];
+    osc.connect(g);
+    g.connect(master);
+    osc.start(time);
+    osc.stop(time + duration * 1.4 + 0.02);
+  });
+}
 
 export function useBackgroundMusic() {
   const [isMusicOn, setIsMusicOn] = useState(() => {
@@ -40,137 +144,48 @@ export function useBackgroundMusic() {
     }
   });
 
-  const activeNodes = useRef<{ stop: (t: number) => void }[]>([]);
   const schedulerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nextNoteTimeRef = useRef<number>(0);
   const currentIndexRef = useRef<number>(0);
   const isRunningRef = useRef<boolean>(false);
   const isMusicOnRef = useRef(isMusicOn);
-
   isMusicOnRef.current = isMusicOn;
 
-  const scheduleNote = useCallback(
-    (ctx: AudioContext, index: number, time: number) => {
-      const melodyFreq = MELODY[index % MELODY.length];
-      const bassFreq = BASS[index % BASS.length];
+  const scheduleUpcoming = useCallback((ctx: AudioContext) => {
+    const lookaheadTime = ctx.currentTime + LOOKAHEAD;
+    while (nextNoteTimeRef.current < lookaheadTime) {
+      const i = currentIndexRef.current % MELODY.length;
+      const t = nextNoteTimeRef.current;
 
-      // Melody note (triangle oscillator)
-      const melodyOsc = ctx.createOscillator();
-      const melodyGain = ctx.createGain();
-      melodyOsc.type = "triangle";
-      melodyOsc.frequency.setValueAtTime(melodyFreq, time);
-      melodyGain.gain.setValueAtTime(0, time);
-      melodyGain.gain.linearRampToValueAtTime(MELODY_GAIN, time + 0.01);
-      melodyGain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        time + NOTE_DURATION,
-      );
-      melodyOsc.connect(melodyGain);
-      melodyGain.connect(ctx.destination);
-      melodyOsc.start(time);
-      melodyOsc.stop(time + NOTE_DURATION + 0.01);
-      activeNodes.current.push({
-        stop: (t) => {
-          try {
-            melodyOsc.stop(t);
-          } catch {
-            /**/
-          }
-        },
-      });
+      // Melody — piano
+      schedulePianoNote(ctx, MELODY[i], t, 0.08, NOTE_DURATION * 1.1);
 
-      // Harmony (octave lower, sine)
-      const harmOsc = ctx.createOscillator();
-      const harmGain = ctx.createGain();
-      harmOsc.type = "sine";
-      harmOsc.frequency.setValueAtTime(melodyFreq * 0.5, time);
-      harmGain.gain.setValueAtTime(0, time);
-      harmGain.gain.linearRampToValueAtTime(MELODY_GAIN * 0.4, time + 0.02);
-      harmGain.gain.exponentialRampToValueAtTime(
-        0.0001,
-        time + NOTE_DURATION * 1.5,
-      );
-      harmOsc.connect(harmGain);
-      harmGain.connect(ctx.destination);
-      harmOsc.start(time);
-      harmOsc.stop(time + NOTE_DURATION * 1.5 + 0.01);
-      activeNodes.current.push({
-        stop: (t) => {
-          try {
-            harmOsc.stop(t);
-          } catch {
-            /**/
-          }
-        },
-      });
+      // Bass — piano (low, quiet)
+      schedulePianoNote(ctx, BASS[i], t, 0.055, NOTE_DURATION * 1.8);
 
-      // Bass note (if non-zero)
-      if (bassFreq > 0) {
-        const bassOsc = ctx.createOscillator();
-        const bassGainNode = ctx.createGain();
-        bassOsc.type = "sine";
-        bassOsc.frequency.setValueAtTime(bassFreq, time);
-        bassGainNode.gain.setValueAtTime(0, time);
-        bassGainNode.gain.linearRampToValueAtTime(BASS_GAIN, time + 0.02);
-        bassGainNode.gain.exponentialRampToValueAtTime(
-          0.0001,
-          time + NOTE_DURATION * 2,
-        );
-        bassOsc.connect(bassGainNode);
-        bassGainNode.connect(ctx.destination);
-        bassOsc.start(time);
-        bassOsc.stop(time + NOTE_DURATION * 2 + 0.01);
-        activeNodes.current.push({
-          stop: (t) => {
-            try {
-              bassOsc.stop(t);
-            } catch {
-              /**/
-            }
-          },
-        });
+      // Pad (every 2 steps)
+      if (i % 2 === 0) {
+        schedulePadNote(ctx, PAD[i], t, 0.04, NOTE_DURATION * 2.2);
       }
 
-      // Prune old nodes
-      if (activeNodes.current.length > 60) {
-        activeNodes.current = activeNodes.current.slice(-30);
-      }
-    },
-    [],
-  );
-
-  const stopAllNodes = useCallback(() => {
-    const ctx = _sharedCtx;
-    const now = ctx ? ctx.currentTime : 0;
-    for (const n of activeNodes.current) {
-      n.stop(now);
+      currentIndexRef.current++;
+      nextNoteTimeRef.current += STEP_DURATION;
     }
-    activeNodes.current = [];
   }, []);
 
   const startScheduler = useCallback(() => {
     if (isRunningRef.current) return;
     isRunningRef.current = true;
-
     const ctx = getSharedAudioContext();
     if (ctx.state === "suspended") ctx.resume();
-
     nextNoteTimeRef.current = ctx.currentTime + 0.1;
-
-    const tick = () => {
+    schedulerRef.current = setInterval(() => {
       if (!isMusicOnRef.current) return;
-      const ctx2 = getSharedAudioContext();
-      if (ctx2.state === "suspended") ctx2.resume();
-      const lookaheadTime = ctx2.currentTime + LOOKAHEAD;
-      while (nextNoteTimeRef.current < lookaheadTime) {
-        scheduleNote(ctx2, currentIndexRef.current, nextNoteTimeRef.current);
-        currentIndexRef.current = (currentIndexRef.current + 1) % MELODY.length;
-        nextNoteTimeRef.current += STEP_DURATION;
-      }
-    };
-
-    schedulerRef.current = setInterval(tick, SCHEDULE_INTERVAL);
-  }, [scheduleNote]);
+      const c = getSharedAudioContext();
+      if (c.state === "suspended") c.resume();
+      scheduleUpcoming(c);
+    }, SCHEDULE_INTERVAL);
+  }, [scheduleUpcoming]);
 
   const stopScheduler = useCallback(() => {
     if (schedulerRef.current !== null) {
@@ -178,24 +193,20 @@ export function useBackgroundMusic() {
       schedulerRef.current = null;
     }
     isRunningRef.current = false;
-    stopAllNodes();
-  }, [stopAllNodes]);
+  }, []);
 
   // Start on first user gesture
   useEffect(() => {
     if (!isMusicOn) return;
-
     const handleGesture = () => {
       startScheduler();
       window.removeEventListener("click", handleGesture);
       window.removeEventListener("keydown", handleGesture);
       window.removeEventListener("touchstart", handleGesture);
     };
-
     window.addEventListener("click", handleGesture);
     window.addEventListener("keydown", handleGesture);
     window.addEventListener("touchstart", handleGesture);
-
     return () => {
       window.removeEventListener("click", handleGesture);
       window.removeEventListener("keydown", handleGesture);
@@ -211,22 +222,13 @@ export function useBackgroundMusic() {
       } catch {
         /**/
       }
-
-      if (!next) {
-        stopScheduler();
-      } else {
-        startScheduler();
-      }
-
+      if (!next) stopScheduler();
+      else startScheduler();
       return next;
     });
   }, [startScheduler, stopScheduler]);
 
-  useEffect(() => {
-    return () => {
-      stopScheduler();
-    };
-  }, [stopScheduler]);
+  useEffect(() => () => stopScheduler(), [stopScheduler]);
 
   return { isMusicOn, toggleMusic };
 }

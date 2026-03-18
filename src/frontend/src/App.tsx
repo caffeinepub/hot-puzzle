@@ -3,8 +3,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Music2, VolumeX } from "lucide-react";
 import { useState } from "react";
 import { useBackgroundMusic } from "./hooks/useBackgroundMusic";
-import { useInternetIdentity } from "./hooks/useInternetIdentity";
-import AuthScreen from "./pages/AuthScreen";
 import Dashboard from "./pages/Dashboard";
 import GameBoard from "./pages/GameBoard";
 
@@ -18,27 +16,12 @@ const queryClient = new QueryClient({
 });
 
 function AppContent() {
-  const { identity, isInitializing } = useInternetIdentity();
   const [playingLevel, setPlayingLevel] = useState<number | null>(null);
   const { isMusicOn, toggleMusic } = useBackgroundMusic();
 
-  if (isInitializing) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-6xl mb-4 float-anim">🔥</div>
-          <p className="fire-title text-2xl">HOT PUZZLE</p>
-          <p className="text-muted-foreground mt-2 animate-pulse">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
-      {!identity ? (
-        <AuthScreen />
-      ) : playingLevel !== null ? (
+      {playingLevel !== null ? (
         <GameBoard
           level={playingLevel}
           onBack={() => setPlayingLevel(null)}

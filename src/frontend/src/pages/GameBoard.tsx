@@ -20,12 +20,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useGameSounds } from "../hooks/useGameSounds";
 import {
-  useLevelConfig,
-  usePlayerProfile,
-  useSaveLevelProgress,
-  useSavePlayerProfile,
-} from "../hooks/useQueries";
-import {
   FRUITS,
   FRUIT_BG,
   FRUIT_SHADOW,
@@ -45,7 +39,7 @@ interface GameBoardProps {
   onNextLevel: (next: number) => void;
 }
 
-type GameState = "playing" | "won" | "lost" | "saving";
+type GameState = "playing" | "won" | "lost";
 
 interface TileData {
   tileKey: string;
@@ -140,22 +134,12 @@ export default function GameBoard({
   onBack,
   onNextLevel,
 }: GameBoardProps) {
-  const { data: profile } = usePlayerProfile();
-  const { data: levelConfig } = useLevelConfig(level);
-  const saveProfile = useSavePlayerProfile();
-  const saveLevelProgress = useSaveLevelProgress();
   const { play, toggle, isMuted } = useGameSounds();
 
-  const gridSize = useMemo(
-    () => (levelConfig ? Number(levelConfig.gridSize) : getGridSize(level)),
-    [levelConfig, level],
-  );
+  const gridSize = useMemo(() => getGridSize(level), [level]);
   const targetScore = useMemo(
-    () =>
-      levelConfig
-        ? Number(levelConfig.targetScore)
-        : getLocalTargetScore(level, gridSize),
-    [levelConfig, level, gridSize],
+    () => getLocalTargetScore(level, gridSize),
+    [level, gridSize],
   );
   const maxMoves = getMaxMoves(level);
 
@@ -215,39 +199,20 @@ export default function GameBoard({
     setPrevGameState(gameState);
   }, [gameState, prevGameState, play]);
 
-  const handleSaveProgress = useCallback(
-    async (completed: boolean, finalScore: number) => {
-      if (!profile) return;
-      setGameState("saving");
+  // Save level progress to localStorage
+  useEffect(() => {
+    if (gameState === "won") {
       try {
-        const newLevel =
-          completed && level >= Number(profile.currentLevel)
-            ? level + 1
-            : Number(profile.currentLevel);
-        const newTotal =
-          Number(profile.totalScore) + (completed ? finalScore : 0);
-
-        await Promise.all([
-          saveLevelProgress.mutateAsync({
-            level,
-            progress: { completed, bestScore: BigInt(finalScore) },
-          }),
-          completed
-            ? saveProfile.mutateAsync({
-                username: profile.username,
-                totalScore: BigInt(newTotal),
-                currentLevel: BigInt(newLevel),
-              })
-            : Promise.resolve(),
-        ]);
+        const saved =
+          Number(localStorage.getItem("hotpuzzle_level") || "1") || 1;
+        if (level >= saved) {
+          localStorage.setItem("hotpuzzle_level", String(level + 1));
+        }
       } catch {
-        toast.error("Failed to save progress");
-      } finally {
-        setGameState(completed ? "won" : "lost");
+        /**/
       }
-    },
-    [profile, level, saveLevelProgress, saveProfile],
-  );
+    }
+  }, [gameState, level]);
 
   useEffect(() => {
     if (gameState !== "playing") return;
@@ -255,11 +220,11 @@ export default function GameBoard({
       const stars =
         score >= targetScore * 3 ? 3 : score >= targetScore * 1.5 ? 2 : 1;
       setStarsEarned(stars);
-      handleSaveProgress(true, score);
+      setGameState("won");
     } else if (moves <= 0) {
       setGameState("lost");
     }
-  }, [score, moves, targetScore, gameState, handleSaveProgress]);
+  }, [score, moves, targetScore, gameState]);
 
   const handleTileClick = useCallback(
     (row: number, col: number) => {
@@ -273,7 +238,6 @@ export default function GameBoard({
 
       const [sr, sc] = selected;
 
-      // Deselect same tile
       if (sr === row && sc === col) {
         setSelected(null);
         return;
@@ -283,14 +247,12 @@ export default function GameBoard({
         (Math.abs(sr - row) === 1 && sc === col) ||
         (Math.abs(sc - col) === 1 && sr === row);
 
-      // Re-select non-adjacent tile
       if (!isAdjacent) {
         play("tile_select");
         setSelected([row, col]);
         return;
       }
 
-      // Attempt swap
       play("tile_swap");
       setIsAnimating(true);
       setSelected(null);
@@ -308,7 +270,6 @@ export default function GameBoard({
         const groups = findMatchGroups(swappedGrid);
 
         if (groups.length === 0) {
-          // No match — shake and revert
           play("no_match");
           setShakeGrid(true);
           await sleep(400);
@@ -323,7 +284,6 @@ export default function GameBoard({
           return;
         }
 
-        // Matches found
         play("match");
         const matchedCells = getMatchedCells(groups);
         setClearingCells(new Set(matchedCells));
@@ -335,7 +295,6 @@ export default function GameBoard({
           (acc, g) => acc + g.length * 10,
           0,
         );
-        // Chain reaction if score gained significantly exceeds single-match score
         if (result.scoreGained > initialMatchScore * 1.5) {
           const chainLevel = Math.min(
             4,
@@ -542,10 +501,7 @@ export default function GameBoard({
       </main>
 
       {/* Win Modal */}
-      <Dialog
-        open={gameState === "won" || gameState === "saving"}
-        onOpenChange={() => {}}
-      >
+      <Dialog open={gameState === "won"} onOpenChange={() => {}}>
         <DialogContent
           data-ocid="game.dialog"
           className="game-card border-0 text-center max-w-sm"
@@ -601,13 +557,7 @@ export default function GameBoard({
                   color: "#fff",
                 }}
               >
-                {gameState === "saving" ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : level >= 2000 ? (
-                  "🏆 Champion!"
-                ) : (
-                  "Next Level →"
-                )}
+                {level >= 2000 ? "🏆 Champion!" : "Next Level →"}
               </Button>
             </div>
           </div>
