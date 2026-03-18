@@ -7,6 +7,7 @@ import {
   Lock,
   Play,
   Star,
+  Swords,
   Trophy,
   Volume2,
   VolumeX,
@@ -21,9 +22,13 @@ const PAGE_BUTTONS = [1, 2, 3, "...", 39, 40] as const;
 
 interface DashboardProps {
   onPlayLevel: (level: number) => void;
+  onPlayOnline: () => void;
 }
 
-export default function Dashboard({ onPlayLevel }: DashboardProps) {
+export default function Dashboard({
+  onPlayLevel,
+  onPlayOnline,
+}: DashboardProps) {
   const { play, toggle, isMuted } = useGameSounds();
 
   const [page, setPage] = useState(1);
@@ -103,7 +108,7 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
           <div>
-            <div className="mb-6">
+            <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Button
                 data-ocid="dashboard.primary_button"
                 onClick={() => {
@@ -119,6 +124,24 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
               >
                 <Play className="w-6 h-6 mr-2" />
                 CONTINUE — Level {currentLevel}
+              </Button>
+
+              <Button
+                data-ocid="dashboard.secondary_button"
+                onClick={() => {
+                  play("button_click");
+                  onPlayOnline();
+                }}
+                className="w-full py-6 text-xl font-bold"
+                style={{
+                  background: "linear-gradient(135deg, #7c3aed, #a855f7)",
+                  border: "1px solid rgba(168,85,247,0.4)",
+                  color: "#fff",
+                  boxShadow: "0 0 20px rgba(124,58,237,0.3)",
+                }}
+              >
+                <Swords className="w-6 h-6 mr-2" />
+                PLAY ONLINE ⚔️
               </Button>
             </div>
 

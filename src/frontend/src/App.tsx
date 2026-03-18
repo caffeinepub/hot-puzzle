@@ -5,6 +5,8 @@ import { useState } from "react";
 import { useBackgroundMusic } from "./hooks/useBackgroundMusic";
 import Dashboard from "./pages/Dashboard";
 import GameBoard from "./pages/GameBoard";
+import OnlineGameBoard from "./pages/OnlineGameBoard";
+import OnlineLobby from "./pages/OnlineLobby";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -15,20 +17,61 @@ const queryClient = new QueryClient({
   },
 });
 
+type Screen = "dashboard" | "game" | "online-lobby" | "online-game";
+
+interface OnlineGameState {
+  roomId: string;
+  playerName: string;
+  playerIndex: number;
+  level: number;
+}
+
 function AppContent() {
+  const [screen, setScreen] = useState<Screen>("dashboard");
   const [playingLevel, setPlayingLevel] = useState<number | null>(null);
+  const [onlineGameState, setOnlineGameState] =
+    useState<OnlineGameState | null>(null);
   const { isMusicOn, toggleMusic } = useBackgroundMusic();
+
+  const handleJoinGame = (
+    roomId: string,
+    playerName: string,
+    playerIndex: number,
+    level: number,
+  ) => {
+    setOnlineGameState({ roomId, playerName, playerIndex, level });
+    setScreen("online-game");
+  };
 
   return (
     <>
-      {playingLevel !== null ? (
+      {screen === "game" && playingLevel !== null ? (
         <GameBoard
           level={playingLevel}
-          onBack={() => setPlayingLevel(null)}
+          onBack={() => setScreen("dashboard")}
           onNextLevel={(next) => setPlayingLevel(next)}
         />
+      ) : screen === "online-lobby" ? (
+        <OnlineLobby
+          onBack={() => setScreen("dashboard")}
+          onJoinGame={handleJoinGame}
+        />
+      ) : screen === "online-game" && onlineGameState ? (
+        <OnlineGameBoard
+          roomId={onlineGameState.roomId}
+          playerName={onlineGameState.playerName}
+          playerIndex={onlineGameState.playerIndex}
+          level={onlineGameState.level}
+          onBack={() => setScreen("online-lobby")}
+        />
       ) : (
-        <Dashboard onPlayLevel={setPlayingLevel} />
+        <Dashboard
+          onPlayLevel={(level) => {
+            setPlayingLevel(level);
+            setScreen("game");
+          }}
+          onPlayOnline={() => setScreen("online-lobby")}
+        />
       )}
 
       {/* Floating music toggle button */}
