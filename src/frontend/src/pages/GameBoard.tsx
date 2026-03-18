@@ -12,10 +12,13 @@ import {
   RefreshCw,
   Target,
   Trophy,
+  Volume2,
+  VolumeX,
   Zap,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useGameSounds } from "../hooks/useGameSounds";
 import {
   useLevelConfig,
   usePlayerProfile,
@@ -30,6 +33,7 @@ import {
   generateGrid,
   getGridSize,
   getLocalTargetScore,
+  getMatchedCells,
   getMaxMoves,
   hasValidSwap,
   processAllMatches,
@@ -88,7 +92,9 @@ function FruitTile({
           height: "100%",
           background: `linear-gradient(145deg, ${FRUIT_BG[fruit]}, ${FRUIT_SHADOW[fruit]})`,
           borderRadius: Math.max(6, size * 0.15),
-          transform: "rotateX(15deg)",
+          transform: isSelected
+            ? "rotateX(15deg) scale(1.08)"
+            : "rotateX(15deg) scale(1)",
           transformOrigin: "center bottom",
           boxShadow: isSelected
             ? `0 0 16px rgba(255,200,0,0.9), 0 0 30px rgba(255,106,0,0.6), 0 ${Math.round(size * 0.1)}px 0 ${FRUIT_SHADOW[fruit]}, 0 ${Math.round(size * 0.14)}px 12px rgba(0,0,0,0.5)`
@@ -99,7 +105,7 @@ function FruitTile({
           fontSize: size * 0.52,
           position: "relative",
           overflow: "hidden",
-          transition: "box-shadow 0.15s ease, transform 0.15s ease",
+          transition: "box-shadow 0.15s ease, transform 0.18s ease",
           border: isSelected
             ? "2px solid rgba(255,220,0,0.9)"
             : "1px solid rgba(255,255,255,0.15)",
@@ -125,6 +131,10 @@ function FruitTile({
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function GameBoard({
   level,
   onBack,
@@ -134,6 +144,7 @@ export default function GameBoard({
   const { data: levelConfig } = useLevelConfig(level);
   const saveProfile = useSavePlayerProfile();
   const saveLevelProgress = useSaveLevelProgress();
+  const { play, toggle, isMuted } = useGameSounds();
 
   const gridSize = useMemo(
     () => (levelConfig ? Number(levelConfig.gridSize) : getGridSize(level)),
@@ -156,6 +167,8 @@ export default function GameBoard({
   const [clearingCells, setClearingCells] = useState<Set<string>>(new Set());
   const [shakeGrid, setShakeGrid] = useState(false);
   const [starsEarned, setStarsEarned] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [prevGameState, setPrevGameState] = useState<GameState>("playing");
 
   const tileSize = useMemo(() => {
     const maxWidth = Math.min(
@@ -166,7 +179,6 @@ export default function GameBoard({
     return Math.floor((maxWidth - gaps) / gridSize);
   }, [gridSize]);
 
-  // Flat tile list with stable keys (position-based, not map index)
   const flatTiles = useMemo<TileData[]>(() => {
     const tiles: TileData[] = [];
     for (let r = 0; r < grid.length; r++) {
@@ -188,10 +200,20 @@ export default function GameBoard({
       setScore(0);
       setMoves(maxMoves);
       setGameState("playing");
+      setPrevGameState("playing");
       setSelected(null);
       setClearingCells(new Set());
+      setIsAnimating(false);
     }
   }, [gridSize, maxMoves]);
+
+  // Play sounds on game state transitions
+  useEffect(() => {
+    if (gameState === prevGameState) return;
+    if (gameState === "won") play("level_win");
+    if (gameState === "lost") play("game_over");
+    setPrevGameState(gameState);
+  }, [gameState, prevGameState, play]);
 
   const handleSaveProgress = useCallback(
     async (completed: boolean, finalScore: number) => {
@@ -241,15 +263,17 @@ export default function GameBoard({
 
   const handleTileClick = useCallback(
     (row: number, col: number) => {
-      if (gameState !== "playing" || clearingCells.size > 0) return;
+      if (gameState !== "playing" || isAnimating) return;
 
       if (!selected) {
+        play("tile_select");
         setSelected([row, col]);
         return;
       }
 
       const [sr, sc] = selected;
 
+      // Deselect same tile
       if (sr === row && sc === col) {
         setSelected(null);
         return;
@@ -259,39 +283,83 @@ export default function GameBoard({
         (Math.abs(sr - row) === 1 && sc === col) ||
         (Math.abs(sc - col) === 1 && sr === row);
 
+      // Re-select non-adjacent tile
       if (!isAdjacent) {
+        play("tile_select");
         setSelected([row, col]);
         return;
       }
 
+      // Attempt swap
+      play("tile_swap");
+      setIsAnimating(true);
       setSelected(null);
 
-      const newGrid = grid.map((r) => [...r]);
-      [newGrid[sr][sc], newGrid[row][col]] = [
-        newGrid[row][col],
-        newGrid[sr][sc],
+      const swappedGrid = grid.map((r) => [...r]);
+      [swappedGrid[sr][sc], swappedGrid[row][col]] = [
+        swappedGrid[row][col],
+        swappedGrid[sr][sc],
       ];
+      setGrid(swappedGrid);
 
-      const groups = findMatchGroups(newGrid);
-      if (groups.length === 0) {
-        setShakeGrid(true);
-        setTimeout(() => setShakeGrid(false), 400);
-        return;
-      }
+      (async () => {
+        await sleep(150);
 
-      const result = processAllMatches(newGrid);
-      setGrid(result.grid);
-      setScore((prev) => prev + result.scoreGained);
-      setMoves((prev) => prev - 1);
+        const groups = findMatchGroups(swappedGrid);
 
-      setTimeout(() => {
+        if (groups.length === 0) {
+          // No match — shake and revert
+          play("no_match");
+          setShakeGrid(true);
+          await sleep(400);
+          setShakeGrid(false);
+          const revertedGrid = swappedGrid.map((r) => [...r]);
+          [revertedGrid[sr][sc], revertedGrid[row][col]] = [
+            revertedGrid[row][col],
+            revertedGrid[sr][sc],
+          ];
+          setGrid(revertedGrid);
+          setIsAnimating(false);
+          return;
+        }
+
+        // Matches found
+        play("match");
+        const matchedCells = getMatchedCells(groups);
+        setClearingCells(new Set(matchedCells));
+
+        await sleep(350);
+
+        const result = processAllMatches(swappedGrid);
+        const initialMatchScore = groups.reduce(
+          (acc, g) => acc + g.length * 10,
+          0,
+        );
+        // Chain reaction if score gained significantly exceeds single-match score
+        if (result.scoreGained > initialMatchScore * 1.5) {
+          const chainLevel = Math.min(
+            4,
+            Math.floor(result.scoreGained / (initialMatchScore * 1.5)),
+          );
+          play("chain", chainLevel);
+        }
+
+        setClearingCells(new Set());
+        setGrid(result.grid);
+        setScore((prev) => prev + result.scoreGained);
+        setMoves((prev) => prev - 1);
+
+        await sleep(100);
         if (!hasValidSwap(result.grid)) {
+          play("shuffle");
           toast.info("No moves left — shuffling grid! 🔀");
           setGrid(generateGrid(gridSize));
         }
-      }, 100);
+
+        setIsAnimating(false);
+      })();
     },
-    [gameState, clearingCells, selected, grid, gridSize],
+    [gameState, isAnimating, selected, grid, gridSize, play],
   );
 
   const handleRestart = () => {
@@ -299,8 +367,10 @@ export default function GameBoard({
     setScore(0);
     setMoves(maxMoves);
     setGameState("playing");
+    setPrevGameState("playing");
     setSelected(null);
     setClearingCells(new Set());
+    setIsAnimating(false);
   };
 
   const scorePercent = Math.min(100, Math.round((score / targetScore) * 100));
@@ -337,13 +407,29 @@ export default function GameBoard({
             <ArrowLeft className="w-4 h-4 mr-1" /> Dashboard
           </Button>
           <div className="fire-title text-xl font-bold">LEVEL {level}</div>
-          <div className="text-right">
-            <div className="text-yellow-400 text-sm font-bold">
-              {score.toLocaleString()} pts
+          <div className="flex items-center gap-2">
+            <div className="text-right">
+              <div className="text-yellow-400 text-sm font-bold">
+                {score.toLocaleString()} pts
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Target: {targetScore.toLocaleString()}
+              </div>
             </div>
-            <div className="text-xs text-muted-foreground">
-              Target: {targetScore.toLocaleString()}
-            </div>
+            <Button
+              data-ocid="game.toggle"
+              variant="ghost"
+              size="sm"
+              onClick={toggle}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label={isMuted ? "Unmute sounds" : "Mute sounds"}
+            >
+              {isMuted ? (
+                <VolumeX className="w-4 h-4" />
+              ) : (
+                <Volume2 className="w-4 h-4" />
+              )}
+            </Button>
           </div>
         </div>
       </header>
@@ -399,7 +485,11 @@ export default function GameBoard({
 
         <div
           className={shakeGrid ? "shake" : ""}
-          style={{ perspective: "1000px", display: "inline-block" }}
+          style={{
+            perspective: "1000px",
+            display: "inline-block",
+            cursor: isAnimating ? "wait" : "default",
+          }}
         >
           <div
             style={{
@@ -432,9 +522,11 @@ export default function GameBoard({
         </div>
 
         <p className="text-xs text-muted-foreground text-center">
-          {selected
-            ? "✨ Now click an adjacent fruit to swap!"
-            : "👆 Click a fruit to select it, then click an adjacent fruit to swap"}
+          {isAnimating
+            ? "✨ Matching fruits..."
+            : selected
+              ? "✨ Now click an adjacent fruit to swap!"
+              : "👆 Click a fruit to select it, then click an adjacent fruit to swap"}
         </p>
 
         <Button
@@ -442,6 +534,7 @@ export default function GameBoard({
           variant="ghost"
           size="sm"
           onClick={handleRestart}
+          disabled={isAnimating}
           className="text-muted-foreground hover:text-foreground"
         >
           <RefreshCw className="w-3.5 h-3.5 mr-1" /> Restart Level

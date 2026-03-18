@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Flame, Loader2, Trophy } from "lucide-react";
+import { useGameSounds } from "../hooks/useGameSounds";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import { useTopPlayers } from "../hooks/useQueries";
 
@@ -19,6 +20,7 @@ const PREVIEW_FRUITS = ["🍎", "🍊", "🍇", "🍌", "🍓", "🍉"];
 export default function AuthScreen() {
   const { login, isLoggingIn } = useInternetIdentity();
   const { data: topPlayers } = useTopPlayers();
+  const { play } = useGameSounds();
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start py-12 px-4 relative overflow-hidden">
@@ -87,7 +89,10 @@ export default function AuthScreen() {
 
         <Button
           data-ocid="auth.primary_button"
-          onClick={login}
+          onClick={() => {
+            play("button_click");
+            login();
+          }}
           disabled={isLoggingIn}
           className="w-full py-6 text-lg font-bold pulse-glow"
           style={{

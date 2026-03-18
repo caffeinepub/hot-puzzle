@@ -17,9 +17,12 @@ import {
   Play,
   Star,
   Trophy,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useGameSounds } from "../hooks/useGameSounds";
 import { useInternetIdentity } from "../hooks/useInternetIdentity";
 import {
   usePlayerProfile,
@@ -41,6 +44,7 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
   const { data: profile, isLoading: profileLoading } = usePlayerProfile();
   const { data: topPlayers } = useTopPlayers();
   const saveProfile = useSavePlayerProfile();
+  const { play, toggle, isMuted } = useGameSounds();
 
   const [page, setPage] = useState(1);
   const [usernameInput, setUsernameInput] = useState("");
@@ -129,6 +133,20 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
               </>
             )}
             <Button
+              data-ocid="dashboard.toggle"
+              variant="ghost"
+              size="sm"
+              onClick={toggle}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label={isMuted ? "Unmute sounds" : "Mute sounds"}
+            >
+              {isMuted ? (
+                <VolumeX className="w-4 h-4" />
+              ) : (
+                <Volume2 className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
               data-ocid="dashboard.secondary_button"
               variant="ghost"
               size="sm"
@@ -147,7 +165,10 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
             <div className="mb-6">
               <Button
                 data-ocid="dashboard.primary_button"
-                onClick={() => onPlayLevel(currentLevel)}
+                onClick={() => {
+                  play("button_click");
+                  onPlayLevel(currentLevel);
+                }}
                 className="w-full py-6 text-xl font-bold pulse-glow"
                 style={{
                   background: "linear-gradient(135deg, #ff6a00, #ee0979)",
@@ -185,7 +206,12 @@ export default function Dashboard({ onPlayLevel }: DashboardProps) {
                       type="button"
                       key={level}
                       data-ocid={`dashboard.item.${posInPage}`}
-                      onClick={() => status !== "locked" && onPlayLevel(level)}
+                      onClick={() => {
+                        if (status !== "locked") {
+                          play("level_select");
+                          onPlayLevel(level);
+                        }
+                      }}
                       className={`level-cell ${status} flex flex-col items-center justify-center p-1 aspect-square`}
                     >
                       <span
